@@ -1,0 +1,15 @@
+*.txt
+*rc.md
+*rc.json
+
+waves.md
+waves.txt
+
+.secret
+.env
+.env.local
+
+*.log
+.experiment/
+.models/
+.cache/

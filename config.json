@@ -1,0 +1,28 @@
+{
+    "extensions": [
+        ".py",
+        ".java",
+        ".sol"
+    ],
+    "ignore": [
+        "Avoid.java",
+        "avoid.sol"
+    ],
+    "ignore_file": "",
+    "accuracy_intensity": 1,
+    "ollama_config": {
+        "model": "felcon/qwen-pentest:latest",
+        "fallback_models": [
+            "phi3:3.8b",
+            "charaf/qwen3.5-4b-claude-opus:latest",
+            "antconsales/antonio-gemma3-evo-q4-logic:latest"
+        ],
+        "validation_model": "phi3:3.8",
+        "validation_fallback_models": [
+            "gemma4:e2b",
+            "charaf/qwen3.5-4b-claude-opus:latest",
+            "antconsales/antonio-gemma3-evo-q4-logic:latest"
+        ],
+        "notes": "Analyze the codebase for better enterprise structural solidity, modularity, and error handling."
+    }
+}
