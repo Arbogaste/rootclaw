@@ -1,10 +1,9 @@
 {
-    "extensions": [".sol", ".rs", ".ts", ".js", ".tsx", ".jsx", ".py", ".java"],
+    "extensions": [".ts", ".js", ".tsx", ".jsx"],
     "ignore": [
-        "*.t.sol", "*/tests/*", "*_test.rs", "*/benchmarks/*",
         "*.test.ts", "*.spec.ts", "*.test.js", "*.spec.js",
-        "*.d.ts", "*.min.js", "node_modules/**", "dist/**", "build/**",
-        "Avoid.java", "avoid.sol"
+        "node_modules/**", "dist/**", "build/**", "coverage/**",
+        "*.d.ts", "*.min.js"
     ],
     "ignore_file": "",
     "accuracy_intensity": 1,
@@ -15,7 +14,7 @@
         "per_file": true,
         "mirror_structure": false
     },
-    "kb": ["blockchain", "webapp"],
+    "kb": ["webapp"],
     "ollama_config": {
         "model": "felcon/qwen-pentest:latest",
         "fallback_models": [
@@ -23,20 +22,17 @@
             "antconsales/antonio-gemma3-evo-q4-logic:latest"
         ],
         "validation_model": "gemma4:e2b",
-        "validation_fallback_models": [
-            "antconsales/antonio-gemma3-smart-q4:latest"
-        ],
-        "notes": "Full-stack security audit. Focus: DeFi economic exploits, oracle manipulation, access control, Substrate storage DoS, Web3 frontend risks."
+        "validation_fallback_models": [],
+        "notes": "Web3 TypeScript/JavaScript frontend security audit. Focus: EIP-712 signatures, approval risks, slippage/deadline, off-chain price data, multicall failures, key handling."
     },
     "openrouter_config": {
         "model": "deepseek/deepseek-r1",
         "fallback_models": [
-            "anthropic/claude-3.7-sonnet",
-            "google/gemini-2.5-pro"
+            "anthropic/claude-3.7-sonnet"
         ],
         "validation_model": "anthropic/claude-3.7-sonnet",
         "validation_fallback_models": [],
-        "notes": "Full-stack security audit. Focus: DeFi economic exploits, oracle manipulation, access control, Substrate storage DoS, Web3 frontend risks.",
+        "notes": "Web3 TypeScript/JavaScript frontend security audit. Focus: EIP-712 signatures, approval risks, slippage/deadline, off-chain price data, multicall failures, key handling.",
         "OPENROUTER_API_KEY": ""
     }
 }

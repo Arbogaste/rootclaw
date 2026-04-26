@@ -19,6 +19,7 @@ contract SafeMath {
     }
 }
 
+
 contract EnterpriseVault {
     using SafeMath for uint256;
 

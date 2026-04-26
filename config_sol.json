@@ -1,13 +1,8 @@
 {
-    "extensions": [".sol", ".rs", ".ts", ".js", ".tsx", ".jsx", ".py", ".java"],
-    "ignore": [
-        "*.t.sol", "*/tests/*", "*_test.rs", "*/benchmarks/*",
-        "*.test.ts", "*.spec.ts", "*.test.js", "*.spec.js",
-        "*.d.ts", "*.min.js", "node_modules/**", "dist/**", "build/**",
-        "Avoid.java", "avoid.sol"
-    ],
+    "extensions": [".sol"],
+    "ignore": ["*.t.sol", "test/**", "tests/**", "mocks/**", "Mock*.sol", "Test*.sol"],
     "ignore_file": "",
-    "accuracy_intensity": 1,
+    "accuracy_intensity": 2,
     "output": {
         "format": "md",
         "mode": "vuln_only",
@@ -15,7 +10,7 @@
         "per_file": true,
         "mirror_structure": false
     },
-    "kb": ["blockchain", "webapp"],
+    "kb": ["blockchain"],
     "ollama_config": {
         "model": "felcon/qwen-pentest:latest",
         "fallback_models": [
@@ -26,7 +21,7 @@
         "validation_fallback_models": [
             "antconsales/antonio-gemma3-smart-q4:latest"
         ],
-        "notes": "Full-stack security audit. Focus: DeFi economic exploits, oracle manipulation, access control, Substrate storage DoS, Web3 frontend risks."
+        "notes": "DeFi Solidity audit. Focus: oracle manipulation, flash loan vectors, reentrancy, economic invariants, access control."
     },
     "openrouter_config": {
         "model": "deepseek/deepseek-r1",
@@ -36,7 +31,7 @@
         ],
         "validation_model": "anthropic/claude-3.7-sonnet",
         "validation_fallback_models": [],
-        "notes": "Full-stack security audit. Focus: DeFi economic exploits, oracle manipulation, access control, Substrate storage DoS, Web3 frontend risks.",
+        "notes": "DeFi Solidity audit. Focus: oracle manipulation, flash loan vectors, reentrancy, economic invariants, access control.",
         "OPENROUTER_API_KEY": ""
     }
 }

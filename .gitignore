@@ -13,3 +13,5 @@ waves.txt
 .experiment/
 .models/
 .cache/
+
+kb/

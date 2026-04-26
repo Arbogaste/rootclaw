@@ -1,0 +1,38 @@
+{
+    "extensions": [".rs"],
+    "ignore": [
+        "*/tests/*", "*/test.rs", "*_test.rs", "*/benchmarks/*",
+        "*/mock.rs", "*/weights.rs", "*/migrations/*"
+    ],
+    "ignore_file": "",
+    "accuracy_intensity": 2,
+    "output": {
+        "format": "md",
+        "mode": "vuln_only",
+        "scope": "all",
+        "per_file": true,
+        "mirror_structure": false
+    },
+    "kb": ["blockchain"],
+    "ollama_config": {
+        "model": "felcon/qwen-pentest:latest",
+        "fallback_models": [
+            "gemma4:e2b",
+            "antconsales/antonio-gemma3-evo-q4-logic:latest"
+        ],
+        "validation_model": "gemma4:e2b",
+        "validation_fallback_models": [],
+        "notes": "Substrate/Rust pallet security audit. Focus: unbounded storage, weight DoS, arithmetic overflow, access control, XCM, EMA oracle abuse."
+    },
+    "openrouter_config": {
+        "model": "deepseek/deepseek-r1",
+        "fallback_models": [
+            "anthropic/claude-3.7-sonnet",
+            "google/gemini-2.5-pro"
+        ],
+        "validation_model": "anthropic/claude-3.7-sonnet",
+        "validation_fallback_models": [],
+        "notes": "Substrate/Rust pallet security audit. Focus: unbounded storage, weight DoS, arithmetic overflow, access control, XCM, EMA oracle abuse.",
+        "OPENROUTER_API_KEY": ""
+    }
+}
