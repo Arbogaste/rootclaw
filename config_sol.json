@@ -1,4 +1,5 @@
 {
+    "provider": "ollama",
     "extensions": [".sol"],
     "ignore": ["*.t.sol", "test/**", "tests/**", "mocks/**", "Mock*.sol", "Test*.sol"],
     "ignore_file": "",

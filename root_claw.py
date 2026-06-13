@@ -2,6 +2,8 @@ import os
 import sys
 import json
 import time
+import signal
+import hashlib
 import logging
 import fnmatch
 from datetime import datetime
@@ -343,13 +345,17 @@ class RootClaw:
         self._init_llm()
 
         dir_name = os.path.basename(self.target_dir.rstrip(os.sep)) or "root"
-        self.run_tag = f"{self.start_time_str}_{dir_name}"
+        # Stable run_tag: target hash + dir name → same target always resumes same dir.
+        # Use only first 8 chars of hash to keep paths short.
+        target_hash = hashlib.sha1(self.target_dir.encode()).hexdigest()[:8]
+        self.run_tag = f"{dir_name}_{target_hash}"
 
         # All outputs go into output/<run_tag>/ relative to cwd
         self.output_dir = os.path.join(os.getcwd(), "output", self.run_tag)
         os.makedirs(self.output_dir, exist_ok=True)
 
-        self.files_json_path = os.path.join(self.output_dir, f"{self.run_tag}_files_rc.json")
+        # files_rc.json stamped with start_time so each invocation logs its own run
+        self.files_json_path = os.path.join(self.output_dir, f"{self.start_time_str}_files_rc.json")
         self.analyzed_txt_path = os.path.join(self.output_dir, f"{self.run_tag}_analyzed_rc.txt")
         self.ignore_patterns = self._load_ignore_patterns()
 
@@ -614,10 +620,34 @@ class RootClaw:
             for r in self._aggregate_results:
                 f.write(f"{r['file']}\n")
 
-    def run(self):
+    def _checkpoint_path(self) -> str:
+        return os.path.join(self.output_dir, f"{self.run_tag}_checkpoint.txt")
+
+    def _load_checkpoint(self) -> set:
+        """Return set of relative file paths already analyzed in this run."""
+        path = self._checkpoint_path()
+        if not os.path.exists(path):
+            return set()
+        with open(path, "r") as f:
+            return {line.strip() for line in f if line.strip()}
+
+    def _save_checkpoint(self, file_path: str):
+        rel = os.path.relpath(file_path, self.target_dir)
+        with open(self._checkpoint_path(), "a") as f:
+            f.write(rel + "\n")
+
+    def run(self, fresh: bool = False):
         start_ts = time.time()
         self._handle_git_clone()
         file_list = self.scan_files()
+
+        if fresh and os.path.exists(self._checkpoint_path()):
+            os.remove(self._checkpoint_path())
+            logger.info("--fresh: checkpoint cleared, full rescan.")
+
+        done = self._load_checkpoint()
+        if done:
+            logger.info(f"Resuming: {len(done)} files already done (checkpoint found).")
 
         state = {
             "start_time": datetime.now().isoformat(),
@@ -628,13 +658,39 @@ class RootClaw:
         with open(self.files_json_path, "w") as f:
             json.dump(state, f, indent=4)
 
+        skipped = 0
+
+        # Save state on SIGINT/SIGTERM
+        def _graceful_exit(signum, frame):
+            logger.info(f"Signal {signum} received — saving state and exiting.")
+            state["end_time"] = datetime.now().isoformat()
+            state["duration_seconds"] = time.time() - start_ts
+            state["interrupted"] = True
+            with open(self.files_json_path, "w") as f:
+                json.dump(state, f, indent=4)
+            logger.info(f"Checkpoint saved at {self._checkpoint_path()} — re-run same command to resume.")
+            sys.exit(0)
+
+        signal.signal(signal.SIGINT, _graceful_exit)
+        signal.signal(signal.SIGTERM, _graceful_exit)
+
         for i, file_path in enumerate(file_list):
+            rel = os.path.relpath(file_path, self.target_dir)
+            if rel in done:
+                logger.info(f"Progress: {i+1}/{len(file_list)} | SKIP (already done): {rel}")
+                skipped += 1
+                continue
+
             logger.info(f"Progress: {i+1}/{len(file_list)} | Reloading config...")
             self.config = self._load_config(self.config_path)
             self._init_llm()
             self.ignore_patterns = self._load_ignore_patterns()
 
             self.analyze_file(file_path)
+            self._save_checkpoint(file_path)
+
+        if skipped:
+            logger.info(f"Resumed run: skipped {skipped} already-analyzed files.")
 
         if not self.config.output.per_file:
             self._write_aggregate_output()
@@ -644,7 +700,7 @@ class RootClaw:
         with open(self.files_json_path, "w") as f:
             json.dump(state, f, indent=4)
 
-        logger.info(f"Done. Results in {self.target_dir}")
+        logger.info(f"Done. Results in {self.output_dir}")
 
 
 def simulate(file_path: str, config_path: str, target_function: str, goal: str):
@@ -685,6 +741,7 @@ if __name__ == "__main__":
     if len(sys.argv) < 2:
         print("Usage:")
         print("  python3 root_claw.py scan <dir> <config_file>")
+        print("  python3 root_claw.py images <dir> <config_images.json> [output_dir]")
         print("  python3 root_claw.py simulate <file> <config_file> <function> <goal>")
         sys.exit(1)
 
@@ -696,14 +753,24 @@ if __name__ == "__main__":
             sys.exit(1)
         simulate(sys.argv[2], sys.argv[3], sys.argv[4], sys.argv[5])
 
+    elif mode == "images":
+        if len(sys.argv) < 4:
+            print("Usage: python3 root_claw.py images <dir> <config_images.json> [output_dir]")
+            sys.exit(1)
+        from image_claw import ImageClaw
+        out = sys.argv[4] if len(sys.argv) > 4 else None
+        ImageClaw(sys.argv[2], sys.argv[3], out).run()
+
     else:
-        # legacy: root_claw.py <dir> <config> or root_claw.py scan <dir> <config>
+        # legacy: root_claw.py <dir> <config> or root_claw.py scan <dir> <config> [--fresh]
         if mode == "scan":
             target, config = sys.argv[2], sys.argv[3]
+            fresh = "--fresh" in sys.argv[4:]
         elif len(sys.argv) >= 3:
             target, config = sys.argv[1], sys.argv[2]
+            fresh = "--fresh" in sys.argv[3:]
         else:
-            print("Usage: python3 root_claw.py scan <dir> <config_file>")
+            print("Usage: python3 root_claw.py scan <dir> <config_file> [--fresh]")
             sys.exit(1)
         app = RootClaw(target, config)
-        app.run()
+        app.run(fresh=fresh)

@@ -15,3 +15,6 @@ waves.txt
 .cache/
 
 kb/
+
+*.pyc
+__pycache__/

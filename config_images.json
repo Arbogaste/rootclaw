@@ -1,0 +1,22 @@
+{
+    "image_mode": "tag",
+    "image_extensions": [".jpg", ".jpeg", ".png", ".webp", ".JPG", ".JPEG", ".PNG", ".WEBP"],
+    "video_extensions": [".mp4", ".MP4", ".mov", ".MOV", ".avi", ".AVI"],
+    "video_frames": 5,
+    "n_clusters": 10,
+    "cluster_threshold": 100,
+    "image_action": "move",
+    "output_json": false,
+    "provider": "ollama",
+    "ollama_config": {
+        "model": "nexusriot/Gemma-4-Uncensored-HauhauCS-Aggressive:e2b",
+        "fallback_models": ["gemma4:e2b"],
+        "notes": "uncensored vision model for nsfw content"
+    },
+    "openrouter_config": {
+        "model": "",
+        "fallback_models": [],
+        "notes": "",
+        "OPENROUTER_API_KEY": ""
+    }
+}

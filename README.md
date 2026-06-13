@@ -1,9 +1,15 @@
 # Root Claw
 
-Root Claw is a tool designed to recursively scan and analyze source code files in a directory using Large Language Models via Ollama or OpenRouter. It is intended for codebase audits, vulnerability research, and architectural reviews where local execution and context awareness are required.
+Root Claw is a multi-mode directory analysis tool powered by local or cloud LLMs via Ollama or OpenRouter.
+
+**Modes:**
+- **`scan`** — recursive source code audit: security, vulnerabilities, architectural review
+- **`images`** — recursive image/video analysis via vision LLMs; two sub-modes: cluster tagging or per-file forensic reports
+- **`simulate`** — step-by-step execution simulation for a specific function/scenario
 
 ## Features
 
+### Code Scan Mode
 * **Resilient Execution**: Native timeout management for LLM requests to prevent indefinite hangs, with automatic fallback across a model chain.
 * **Dynamic Configuration**: Hot-reloading of `config.json` between file analyses, allowing on-the-fly adjustment of models, notes, and ignore patterns.
 * **Automated Ingestion**: Optional support for cloning remote Git repositories directly via configuration for immediate analysis.
@@ -13,9 +19,27 @@ Root Claw is a tool designed to recursively scan and analyze source code files i
 * **Accuracy Levels**: Adjustable intensity (1 to 3) that controls chunk size and enables additional validation passes for high-precision results.
 * **Fallback Logic**: Configurable primary and fallback model chains for both Ollama and OpenRouter to ensure execution completes even if a specific model fails.
 * **Non-Destructive Outputs**: Generates analysis reports alongside the original files without modifying the source code. Own output files are always excluded from re-scanning.
-* **Customizable Prompts**: All prompts live in `prompts/` as plain text files. Edit or replace them without touching Python code.
 * **Knowledge Base Injection**: Place `.md` or `.txt` files under `kb/<name>/` and reference them in config to inject domain knowledge (OWASP, past audits, etc.) into the system prompt.
 * **Flexible Output**: Control output format, verbosity, scope, and aggregation per run via the `output` config block.
+
+### Image Mode (`image_claw`) — `image_mode: "tag"` (default)
+* **Vision LLM Tagging**: Each image is tagged by a vision model (Ollama or OpenRouter) using a configurable prompt.
+* **Progressive Clustering**: Tags accumulate across all images; once a threshold is reached, the top-N tags become cluster labels and all images are sorted automatically.
+* **Move or Copy**: Configurable — move files (default) or copy, preserving originals.
+* **Recursive + Multi-directory**: Scans subdirectories recursively. Accepts multiple comma-separated input paths.
+* **Resume-safe**: State persisted in `image_state.json` — interrupt and restart without re-tagging already processed images.
+* **Prompt-driven**: Tag prompt lives in `prompts/image_tag.txt` — edit without touching Python.
+
+### Image Mode — `image_mode: "analyze"`
+* **Per-file Forensic Reports**: Instead of clustering, produces one structured `.md` document per image or video file.
+* **MP4 / Video Support**: For each video file (`.mp4`, `.mov`, `.avi`), extracts N evenly-spaced frames (default `5`, configurable as `video_frames`) and analyzes each frame individually via the vision LLM.
+* **Timestamped Frame Labels**: Each frame report is labeled with its timestamp in seconds (e.g. `Frame 2 [12.4s]`) and merged into a single document per video.
+* **Audio Transcription**: Set `audio_extensions` in config to enable `.mp3` / `.wav` / `.m4a` processing. Transcribes via Whisper (local) or OpenRouter STT and writes one transcript `.md` per file. Disabled by default — zero impact if not configured.
+* **Resume-safe**: State tracked in `image_state.json` under an `analyzed` key — already-processed files are skipped on restart.
+* **Separate Prompt Files**: Uses `prompts/image_analysis.txt` for still images and `prompts/video_frame_analysis.txt` for video frames (both editable without touching Python).
+
+### Common
+* **Customizable Prompts**: All prompts live in `prompts/` as plain text files.
 * **Multi-Provider Support**: Switch between Ollama (local) and OpenRouter (cloud) via the `provider` field.
 
 ## Installation
@@ -37,10 +61,20 @@ pip install requests
 ## Usage
 
 ```bash
-python3 root_claw.py [directory_to_analyze] [config.json]
+# Code audit
+python3 root_claw.py scan <directory> <config.json>
+python3 root_claw.py <directory> <config.json>          # legacy, same as scan
+
+# Image tagging and clustering
+python3 root_claw.py images <directory> <config_images.json>
+python3 root_claw.py images <directory> <config_images.json> <output_dir>
+python3 root_claw.py images <dir1,dir2,dir3> <config_images.json> <output_dir>
+
+# Execution simulation
+python3 root_claw.py simulate <file> <config.json> <function_name> <goal>
 ```
 
-`examples/` is a sample directory structure for testing:
+`examples/` is a sample directory structure for testing the scan mode:
 
 ```
 examples/
@@ -132,6 +166,8 @@ kb/
 
 All prompt templates used during analysis. Edit these to customize behavior without modifying Python code.
 
+**Scan mode prompts:**
+
 | File | Purpose |
 |---|---|
 | `system_default.txt` | System prompt for intensity 1–2 |
@@ -143,9 +179,285 @@ All prompt templates used during analysis. Edit these to customize behavior with
 | `chunk_summary.txt` | Rolling context summary prompt |
 | `merge.txt` | Final consolidation prompt |
 
-## Output Structure
+**Image mode prompts:**
 
-All output is written to `output/[timestamp]_[dir]/` relative to where the script is launched. The source directory is never modified.
+| File | Purpose |
+|---|---|
+| `image_tag.txt` | Tag prompt for `image_mode: "tag"` — used for every image |
+| `image_analysis.txt` | Analysis prompt for `image_mode: "analyze"` — used for still images |
+| `video_frame_analysis.txt` | Per-frame prompt for video analysis; supports `{frame_index}` and `{total_frames}` placeholders |
+
+---
+
+## Image Mode
+
+Image mode (`image_claw`) processes images and videos via a vision LLM. It runs separately from the code scan and uses its own config file. Two sub-modes are available, controlled by `"image_mode"` in the config.
+
+### Quick start
+
+```bash
+# Install vision-capable model (local)
+ollama pull gemma4:e2b
+
+# Tag + cluster mode (default)
+python3 root_claw.py images /path/to/photos config_images.json /path/to/output
+
+# Forensic analysis mode (images + video)
+python3 root_claw.py images /path/to/media config_images_analyze.json /path/to/output
+```
+
+---
+
+### Sub-mode: `tag` (default)
+
+Tags every image and organizes them into cluster folders by dominant tag.
+
+#### How clustering works
+
+1. Every image is tagged (5–8 comma-separated lowercase tags).
+2. Tags accumulate in a frequency counter across all images.
+3. When `cluster_threshold` images have been tagged, the top `n_clusters` tags become cluster labels.
+4. All previously tagged images are retroactively sorted into the matching cluster folder.
+5. Every subsequent image is assigned to its dominant cluster on arrival.
+
+Files are **moved** by default (`"image_action": "move"`). Set to `"copy"` to keep originals in place.
+
+#### `config_images.json`
+
+```json
+{
+    "image_mode": "tag",
+    "image_extensions": [".jpg", ".jpeg", ".png", ".webp"],
+    "n_clusters": 10,
+    "cluster_threshold": 100,
+    "image_action": "move",
+    "output_json": false,
+    "prompt": "image_tag.txt",
+    "provider": "ollama",
+    "ollama_config": {
+        "model": "gemma4:e2b",
+        "fallback_models": []
+    },
+    "openrouter_config": {
+        "model": "openai/gpt-4o",
+        "fallback_models": [],
+        "OPENROUTER_API_KEY": "your_key"
+    }
+}
+```
+
+| Field | Default | Description |
+|---|---|---|
+| `image_mode` | `"tag"` | Sub-mode: `"tag"` or `"analyze"` |
+| `image_extensions` | jpg/jpeg/png/webp | Image file types to process |
+| `n_clusters` | `10` | Number of cluster folders to create |
+| `cluster_threshold` | `100` | Images to tag before clustering begins |
+| `image_action` | `"move"` | `"move"` (destructive) or `"copy"` (safe) |
+| `output_json` | `false` | Write `image_results_[ts].json` with full tag/cluster report |
+| `prompt` | `"image_tag.txt"` | Filename in `prompts/` to use for tagging |
+| `provider` | `"ollama"` | `"ollama"` or `"openrouter"` |
+
+---
+
+### Sub-mode: `analyze`
+
+Produces one structured `.md` report per file. Supports both still images and video files (`.mp4`, `.mov`, `.avi`). No clustering or file moving — output documents are written to the output directory.
+
+#### How video analysis works
+
+1. For each video, `N` frames are extracted at evenly-spaced intervals across the full duration (default `video_frames: 5`).
+2. Each frame is analyzed individually by the vision LLM using `prompts/video_frame_analysis.txt`.
+3. Results are merged into a single `.md` file: `[timestamp]_[videoname]_analysis.md`.
+4. Each frame section is labeled with its timestamp in seconds (e.g. `## Frame 2 [12.4s]`).
+
+For still images, `prompts/image_analysis.txt` is used and the full response is written as-is.
+
+#### `config_images_analyze.json`
+
+```json
+{
+    "image_mode": "analyze",
+    "image_extensions": [".jpg", ".jpeg", ".png", ".webp"],
+    "video_extensions": [".mp4", ".mov", ".avi"],
+    "video_frames": 5,
+    "image_action": "copy",
+    "provider": "ollama",
+    "ollama_config": {
+        "model": "gemma4:e2b",
+        "fallback_models": []
+    },
+    "openrouter_config": {
+        "model": "openai/gpt-4o",
+        "fallback_models": [],
+        "OPENROUTER_API_KEY": "your_key"
+    }
+}
+```
+
+| Field | Default | Description |
+|---|---|---|
+| `image_mode` | `"tag"` | Must be `"analyze"` to activate this sub-mode |
+| `video_extensions` | mp4/mov/avi | Video file types to process |
+| `video_frames` | `5` | Number of frames to extract and analyze per video |
+| `image_action` | `"move"` | `"move"` or `"copy"` — only affects image files in analyze mode |
+| `provider` | `"ollama"` | `"ollama"` or `"openrouter"` |
+
+#### Output structure (analyze mode)
+
+```
+output_dir/
+  image_state.json                       ← resume state
+  20260601_120000_photo1_analysis.md     ← still image report
+  20260601_120001_clip1_analysis.md      ← video report (all frames merged)
+  20260601_120002_interview_analysis.md  ← audio transcript
+```
+
+Video report structure:
+
+```markdown
+# Video analysis: clip1.mp4
+Frames analyzed: 5
+
+## Frame 1 [3.2s]
+...
+
+## Frame 2 [12.4s]
+...
+```
+
+Audio transcript structure:
+
+```markdown
+# Audio transcript: interview.mp3
+
+Hello and welcome to the show...
+```
+
+---
+
+### Audio Transcription (`image_mode: "analyze"` only)
+
+Audio transcription is **opt-in**: it activates only when `audio_extensions` is present in the config. No config key = no change in behaviour.
+
+Supported backends:
+
+| `provider` | Backend | Requirement |
+|---|---|---|
+| `"whisper"` (default) | `openai-whisper` Python library, runs locally | `pip install openai-whisper` |
+| `"openrouter"` | OpenRouter audio transcription REST endpoint | API key + model |
+
+#### Config — Whisper (local)
+
+```json
+{
+    "image_mode": "analyze",
+    "audio_extensions": [".mp3", ".wav", ".m4a"],
+    "audio_config": {
+        "provider": "whisper",
+        "whisper_model": "base"
+    }
+}
+```
+
+#### Config — OpenRouter STT (cloud)
+
+```json
+{
+    "image_mode": "analyze",
+    "audio_extensions": [".mp3", ".wav", ".m4a"],
+    "audio_config": {
+        "provider": "openrouter",
+        "model": "openai/whisper-large-v3",
+        "OPENROUTER_API_KEY": "your_key"
+    }
+}
+```
+
+| Field | Default | Description |
+|---|---|---|
+| `audio_extensions` | *(absent = disabled)* | File extensions to treat as audio; omit to disable entirely |
+| `audio_config.provider` | `"whisper"` | `"whisper"` (local) or `"openrouter"` (cloud) |
+| `audio_config.whisper_model` | `"base"` | Whisper model size: `tiny`, `base`, `small`, `medium`, `large` |
+| `audio_config.model` | `"openai/whisper-large-v3"` | OpenRouter model ID (only for `provider: "openrouter"`) |
+| `audio_config.OPENROUTER_API_KEY` | `""` | Required when using OpenRouter |
+
+> **Note:** Audio is silently skipped in `image_mode: "tag"`. The LLM vision config (`ollama_config` / `openrouter_config`) is not used for audio — only `audio_config` is.
+
+### Customizing the tag prompt
+
+Edit `prompts/image_tag.txt` to change what the model focuses on — no Python changes needed.
+
+Default prompt focuses on: subjects, scene type, action, mood, setting, visual style.
+
+Examples of domain-specific prompts:
+
+```
+# Fashion
+List 5-8 tags: clothing style, garment type, color palette, occasion, body coverage. Comma-separated lowercase only.
+
+# Art / illustration
+List 5-8 tags: art style, medium, mood, color palette, subject, composition. Comma-separated lowercase only.
+
+# Product photos
+List 5-8 tags: product category, color, background, shot angle, lighting. Comma-separated lowercase only.
+```
+
+### Output structure
+
+```
+output_dir/
+  image_state.json              ← resume state (tagged images + cluster assignments)
+  image_results_[ts].json       ← full report (only if output_json: true)
+  woman/                        ← cluster folder (named after dominant tag)
+    photo1.jpg
+    photo3.png
+  sitting/
+    photo2.jpg
+  indoor/
+    ...
+```
+
+`image_results_[ts].json` structure:
+
+```json
+{
+  "clusters": ["woman", "sitting", "indoor", ...],
+  "cluster_counts": {"woman": 42, "sitting": 31, ...},
+  "tag_frequency": {"woman": 98, "sitting": 74, "indoor": 61, ...},
+  "total_tagged": 110,
+  "images": [
+    {
+      "path": "/abs/path/to/photo.jpg",
+      "name": "photo.jpg",
+      "tags": ["woman", "sitting", "jeans"],
+      "cluster": "woman"
+    }
+  ]
+}
+
+### Multi-directory input
+
+Pass multiple directories as a comma-separated string:
+
+```bash
+python3 root_claw.py images /photos/batch1,/photos/batch2,/archive/old config_images.json /sorted
+```
+
+All directories are scanned recursively. Duplicate filenames across directories are handled safely (state key = absolute path).
+
+### Recommended vision models (Ollama)
+
+| Model | Size | Notes |
+|---|---|---|
+| `gemma4:e2b` | 7 GB | Best instruction following, slow |
+| `gemma3:4b` | 3 GB | Good balance, faster |
+| `moondream:latest` | 1.7 GB | Fast but limited prompt compliance |
+
+---
+
+## Output Structure (scan mode)
+
+All scan output is written to `output/[timestamp]_[dir]/` relative to where the script is launched. The source directory is never modified.
 
 * `[timestamp]_[filename]_rc.md` (or `.json`): Per-file analysis report.
 * `[timestamp]_[dir]_files_rc.json`: Manifest of all scanned files and run metadata.
